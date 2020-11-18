@@ -10,12 +10,11 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import albumentations as A
 
-from config import DATA_DIR
-
 class hmDataset(Dataset):
 
-    def __init__(self, ids, transforms=None, preprocessing=None):
+    def __init__(self, ids, data_dir, transforms=None, preprocessing=None):
         self.ids = ids
+        self.data_dir = data_dir
         self.transforms = transforms
         self.preprocessing = preprocessing
 
@@ -24,8 +23,8 @@ class hmDataset(Dataset):
 
     def __getitem__(self, idx:int):
         name = self.ids[idx].split('.')[0]
-        img = cv2.imread(os.path.join(DATA_DIR, 'image', name+'.png'))
-        mask = np.load(os.path.join(DATA_DIR, 'mask', name+'.npy'))
+        img = cv2.imread(os.path.join(self.data_dir, 'image', name+'.png'))
+        mask = np.load(os.path.join(self.data_dir, 'mask', name+'.npy'))
 
         if self.transforms:
             augmented = self.transforms(image=img, mask=mask)
