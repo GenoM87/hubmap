@@ -23,8 +23,8 @@ class hmDataset(Dataset):
 
     def __getitem__(self, idx:int):
         name = self.ids[idx].split('.')[0]
-        img = cv2.imread(os.path.join(self.data_dir, 'image', name+'.png'))
-        mask = np.load(os.path.join(self.data_dir, 'mask', name+'.npy'))
+        img = cv2.imread(os.path.join(self.data_dir, 'train', name+'.png'))
+        mask = cv2.imread(os.path.join(self.data_dir, 'masks', name+'.png'))[:, :, 0:1]
 
         if self.transforms:
             augmented = self.transforms(image=img, mask=mask)
@@ -44,4 +44,4 @@ class hmDataset(Dataset):
         for idx, ax in enumerate(axes.ravel()):
             img, mask = self.__getitem__(id_sample[idx])
             ax.imshow(img.permute(1, 2, 0))
-            ax.matshow(mask.squeeze(), alpha=0.5)
+            ax.matshow(mask.permute(1, 2, 0), alpha=0.5)

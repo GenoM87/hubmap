@@ -1,6 +1,6 @@
 import pathlib
 import os
-import torch
+#import torch
 from yacs.config import CfgNode as CN
 
 #GENERAL CONFIG
@@ -8,10 +8,18 @@ from yacs.config import CfgNode as CN
 _C = CN()
 _C.PROJECT_DIR = str(pathlib.Path(__file__).parent.parent.absolute())
 _C.DATA_DIR = os.path.join(_C.PROJECT_DIR, 'data')
-_C.DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+#_C.DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 #Dataset config
 _C.DATASET = CN()
+
+#TILE CREATION
+_C.DATASET.IMG_SCALE = 0.25
+_C.DATASET.TRAIN_TILE_SIZE = 320
+_C.DATASET.TRAIN_TILE_AVG_STEP = 160
+_C.DATASET.TRAIN_TILE_MIN_SCORE = 0.25
+
+ #DATASET AUGMENTATION
 _C.DATASET.IMG_HEIGHT = 256
 _C.DATASET.IMG_WIDTH = 256
 _C.DATASET.H_FLIP_PROB = 0.5
@@ -29,3 +37,8 @@ _C.VALID_LOADER.NUM_WORKERS = 4
 #train config
 _C.TRAIN = CN()
 _C.TRAIN.LR = 1e-03
+
+#Model config
+_C.MODEL = CN()
+_C.MODEL.NAME = 'resnet18'
+_C.MODEL.PRETRAINING = 'imagenet'
