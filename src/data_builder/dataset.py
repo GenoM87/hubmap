@@ -21,7 +21,7 @@ class hmDataset(Dataset):
         self.preprocessing = preprocessing
 
     def __len__(self):
-        return len(self.df.shape[0])
+        return self.df.shape[0]
 
     def __getitem__(self, idx:int):
         row = self.df.iloc[idx]
