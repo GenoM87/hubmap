@@ -12,19 +12,31 @@ import albumentations as A
 
 class hmDataset(Dataset):
 
-    def __init__(self, ids, data_dir, transforms=None, preprocessing=None):
-        self.ids = ids
-        self.data_dir = data_dir
+    def __init__(self, df, img_ids, cfg, transforms=None, preprocessing=None):
+        self.img_ids = img_ids
+        self.df = df[df['image_id'].isin(img_ids)]
+        self.cfg = cfg
+        self.tile_dir = cfg.DATASET.TILE_DIR
         self.transforms = transforms
         self.preprocessing = preprocessing
 
     def __len__(self):
-        return len(self.ids)
+        return len(self.df.shape[0])
 
     def __getitem__(self, idx:int):
-        name = self.ids[idx].split('.')[0]
-        img = cv2.imread(os.path.join(self.data_dir, 'train', name+'.png'))
-        mask = cv2.imread(os.path.join(self.data_dir, 'masks', name+'.png'))[:, :, 0:1]
+        row = self.df.iloc[idx]
+        path_img = os.path.join(
+            self.tile_dir, 
+            row['image_id']
+        )
+        img = cv2.imread(
+            os.path.join(path_img, 'x'+str(row['cx'])+'_y'+str(row['cy'])+'.png'),
+            cv2.IMREAD_COLOR
+        )
+        mask = cv2.imread(
+            os.path.join(path_img, 'x'+str(row['cx'])+'_y'+str(row['cy'])+'.mask.png'),
+            cv2.IMREAD_GRAYSCALE
+        )
 
         if self.transforms:
             augmented = self.transforms(image=img, mask=mask)
@@ -35,13 +47,3 @@ class hmDataset(Dataset):
             img = preprocessed['image']
             mask = preprocessed['mask']
         return img, mask
-    
-    def show_batch(self):
-
-        id_sample = np.random.choice(range(len(self.ids)), 16)
-        fig, axes = plt.subplots(4, 4, figsize=(15, 15))
-
-        for idx, ax in enumerate(axes.ravel()):
-            img, mask = self.__getitem__(id_sample[idx])
-            ax.imshow(img.permute(1, 2, 0))
-            ax.matshow(mask.permute(1, 2, 0), alpha=0.5)

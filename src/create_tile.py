@@ -23,9 +23,9 @@ if __name__ == "__main__":
     os.makedirs(IMG_OUT, exist_ok=True)
     print(path_tile)
 
-    #TODO: aggiungere un dataframe che tiene storicizzato
-    for cnt, row in df_train.iterrows():
-
+    df_coord = pd.DataFrame()
+    for cnt, row in df_train.iloc[:2].iterrows():
+        
         img_id, encoding = row['id'], row['encoding']
         path_image = os.path.join(cfg.DATA_DIR, 'train', img_id+'.tiff')
 
@@ -39,6 +39,15 @@ if __name__ == "__main__":
             cfg,
             phase='train'
         )
+        
+        df_image = pd.DataFrame()
+        coord = np.array(res['coord'])
+        df_image['cx']=coord[:,0].astype(np.int32)
+        df_image['cy']=coord[:,1].astype(np.int32)
+        df_image['cv']=coord[:,2]
+        df_image['image_id'] = img_id 
+
+        df_coord = df_coord.append(df_image)
 
         tile_id = []
         for i in range(len(res['coord'])):
@@ -52,4 +61,5 @@ if __name__ == "__main__":
             cv2.imwrite(os.path.join(IMG_OUT, img_id, f'{s}.png'), tile_img)
             cv2.imwrite(os.path.join(IMG_OUT, img_id, f'{s}.mask.png'), tile_mask)
 
+    df_coord.to_csv(os.path.join(IMG_OUT, 'coord.csv'), index=False)
 
