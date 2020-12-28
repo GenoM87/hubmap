@@ -24,7 +24,7 @@ if __name__ == "__main__":
     print(path_tile)
 
     df_coord = pd.DataFrame()
-    for cnt, row in df_train.iloc[:2].iterrows():
+    for cnt, row in df_train.iterrows():
         
         img_id, encoding = row['id'], row['encoding']
         path_image = os.path.join(cfg.DATA_DIR, 'train', img_id+'.tiff')
