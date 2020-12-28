@@ -9,15 +9,13 @@ import torch
 from .average import AverageMeter
 from models.optimizer import make_optimizer
 from models.scheduler import make_scheduler
-from models.loss import binary_xloss
+from models.loss import binary_xloss, dice_coeff
 
 
 class Fitter:
-
     def __init__(self, model, cfg, train_loader, val_loader, logger, exp_path):
         
         self.experiment_path =  exp_path
-
         self.model = model.to(cfg.DEVICE)
         self.cfg = cfg
         self.train_loader = train_loader
@@ -49,15 +47,17 @@ class Fitter:
             summary_loss = self.train_one_epoch()
             self.logger.info(f'[RESULT]: Train. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, time: {(time.time() - t):.5f}')
 
-            valid_loss, valid_dice = self.validate()
+            valid_loss, valid_dice, best_thr = self.validate()
 
             self.scheduler.step(valid_dice)
 
             self.logger.info( f'[RESULT]: Val. Epoch: {self.epoch}, Best Score Threshold: {self.best_threshold:.2f}, Best Score: {valid_dice:.5f}, time: {(time.time() - t):.5f}')
+            self.epoch += 1
             if valid_dice > self.val_score:
                 self.model.eval()
                 self.save(self.experiment_path)
                 self.val_score = valid_dice
+                self.best_threshold = best_thr
 
     def train_one_epoch(self):
         self.model.train()
@@ -89,16 +89,47 @@ class Fitter:
                 f'time: {(time.time() - t):.5f}'
             )
 
-
-        return summary_loss
+        return summary_loss.avg
 
     def validate(self):
         self.model.eval()
         t = time.time()
         summary_loss = AverageMeter()
 
+        val_loader = tqdm(self.val_loader, total=len(self.val_loader), desc='Valid')
 
-        return val_loss
+        valid_probability = []
+        valid_mask = []
+        for step, (imgs, targets) in enumerate(val_loader):
+            targets = targets.to(self.cfg.DEVICE)
+            imgs = imgs.to(self.cfg.DEVICE)
+
+            with torch.no_grad():
+                y_hat = self.model(imgs)
+                prob = torch.sigmoid(y_hat)
+
+            valid_probability.append(prob.detach().cpu().numpy())
+            valid_mask.append(targets.detach().cpu().numpy())
+
+        probability = np.concatenate(valid_probability)
+        mask = np.concatenate(valid_mask)
+
+        val_loss = binary_xloss(probability, mask)
+
+        act_dice = 0
+        best_dice = 0
+        for thr in np.linspace(0, 1, num=20):
+            pred = (probability>thr).astype(np.uint8)
+            act_dice = dice_coeff(pred, mask)
+            if act_dice>best_dice:
+                self.logger.info(
+                    f'[VALID]Epoch: {self.epoch} Found best dice at thr {thr}: {act_dice}'
+                )
+                best_thr = thr
+                best_dice = act_dice
+
+        self.best_threshold = best_thr
+        return val_loss, best_dice, best_thr
 
     def save(self, path):
         self.model.eval()
