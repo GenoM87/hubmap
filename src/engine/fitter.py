@@ -1,4 +1,4 @@
-import os, sys, time, warnings
+import os, sys, time, warnings, datetime
 
 import pandas as pd
 import numpy as np
@@ -11,12 +11,15 @@ from data_builder.transforms import get_valid_transform
 from .average import AverageMeter
 from models.optimizer import make_optimizer
 from models.scheduler import make_scheduler
-from models.loss import binary_xloss, dice_coeff
+from models.loss import binary_xloss, dice_coefficient
 
 class Fitter:
     def __init__(self, model, cfg, train_loader, val_loader, logger, exp_path):
         
+        print(datetime.date.today())
         self.experiment_path =  exp_path
+        os.makedirs(self.experiment_path, exist_ok=True)
+
         self.model = model.to(cfg.DEVICE)
         self.cfg = cfg
         self.train_loader = train_loader
@@ -49,7 +52,7 @@ class Fitter:
             self.logger.info(
                 f'''[RESULT]: Train. Epoch: {self.epoch},
                 summary_loss: {summary_loss.avg:.5f}, 
-                time: {(time.time() - t):.5f}'''
+                time: {(time.time() - t):.3f}'''
             )
 
             valid_loss, valid_dice, best_thr = self.validate()
@@ -61,12 +64,13 @@ class Fitter:
                 validation_loss: {valid_loss.avg:.5f},
                 Best Score Threshold: {self.best_threshold:.2f}, 
                 Best Score: {valid_dice:.5f}, 
-                time: {(time.time() - t):.5f}'''
+                time: {(time.time() - t):.3f}'''
             )
             self.epoch += 1
             if valid_dice > self.val_score:
                 self.model.eval()
-                self.save(self.experiment_path)
+                self.save(
+                    os.path.join(self.experiment_path, f'unet_best.ckpt'))
                 self.val_score = valid_dice
                 self.best_threshold = best_thr
 
@@ -97,7 +101,7 @@ class Fitter:
                 f'Train Step {step}/{len(self.train_loader)}, ' + \
                 f'Learning rate {self.optimizer.param_groups[0]["lr"]}, ' + \
                 f'summary_loss: {summary_loss.avg:.5f}, ' + \
-                f'time: {(time.time() - t):.5f}'
+                f'time: {(time.time() - t):.3f}'
             )
 
         return summary_loss
@@ -113,8 +117,8 @@ class Fitter:
         valid_mask = []
         for step, (imgs, masks) in enumerate(val_loader):
 
-            targets = imgs.to(self.cfg.DEVICE)
-            imgs = masks.to(self.cfg.DEVICE)
+            targets = masks.to(self.cfg.DEVICE)
+            imgs = imgs.to(self.cfg.DEVICE)
             batch_size = imgs.shape[0]
 
             with torch.no_grad():
@@ -131,7 +135,7 @@ class Fitter:
                 f'Valid Step {step}/{len(self.val_loader)}, ' + \
                 f'Learning rate {self.optimizer.param_groups[0]["lr"]}, ' + \
                 f'summary_loss: {summary_loss.avg:.5f}, ' + \
-                f'time: {(time.time() - t):.5f}'
+                f'time: {(time.time() - t):.3f}'
             )
 
         probability = np.concatenate(valid_probability)
@@ -141,7 +145,7 @@ class Fitter:
         best_dice = 0
         for thr in np.linspace(0, 1, num=20):
             pred = (probability>thr).astype(np.uint8)
-            act_dice = dice_coeff(pred, mask)
+            act_dice = dice_coefficient(pred, mask)
             if act_dice>best_dice:
                 self.logger.info(
                     f'[VALID]Epoch: {self.epoch} Found best dice at thr {thr}: {act_dice}'

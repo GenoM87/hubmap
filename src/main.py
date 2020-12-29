@@ -1,4 +1,5 @@
-import sys, os, time, logging
+import sys, os, time, logging, datetime
+from pathlib import Path
 
 from engine.fitter import Fitter
 from config import _C as cfg
@@ -8,15 +9,16 @@ from data_builder import build_valid_loader, build_train_loader
 
 #Creo lla directory per l'esperimento
 path_exp = os.path.join(
-    cfg.PROJECT_DIR, 'experiments', cfg.MODEL.NAME
+    cfg.PROJECT_DIR, 'experiments', cfg.MODEL.NAME, str(datetime.date.today())
 )
 
-os.makedirs(path_exp, exist_ok=True)
+Path(path_exp).mkdir(parents=True, exist_ok=True)
 
 #Istanzio il logger
 path_logger = os.path.join(
     path_exp, 'train.log'
 )
+
 logging.basicConfig(filename=path_logger, level=logging.DEBUG)
 logger = logging.getLogger()
 

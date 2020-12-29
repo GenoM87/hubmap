@@ -134,6 +134,13 @@ def flatten_binary_scores(scores, labels, ignore=None):
     vlabels = labels[valid]
     return vscores, vlabels
 
+def dice_coefficient(mask1, mask2):
+    intersect = np.sum(mask1*mask2)
+    fsum = np.sum(mask1)
+    ssum = np.sum(mask2)
+    dice = (2 * intersect ) / (fsum + ssum)
+    dice = np.mean(dice)
+    return dice  
 
 class StableBCELoss(torch.nn.modules.Module):
     def __init__(self):
