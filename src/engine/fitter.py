@@ -6,11 +6,12 @@ from tqdm import tqdm
 
 import torch
 
+from utils import create_tile_v2
+from data_builder.transforms import get_valid_transform
 from .average import AverageMeter
 from models.optimizer import make_optimizer
 from models.scheduler import make_scheduler
 from models.loss import binary_xloss, dice_coeff
-
 
 class Fitter:
     def __init__(self, model, cfg, train_loader, val_loader, logger, exp_path):
@@ -45,13 +46,23 @@ class Fitter:
 
             t = time.time()
             summary_loss = self.train_one_epoch()
-            self.logger.info(f'[RESULT]: Train. Epoch: {self.epoch}, summary_loss: {summary_loss.avg:.5f}, time: {(time.time() - t):.5f}')
+            self.logger.info(
+                f'''[RESULT]: Train. Epoch: {self.epoch},
+                summary_loss: {summary_loss.avg:.5f}, 
+                time: {(time.time() - t):.5f}'''
+            )
 
             valid_loss, valid_dice, best_thr = self.validate()
 
             self.scheduler.step(valid_dice)
 
-            self.logger.info( f'[RESULT]: Val. Epoch: {self.epoch}, Best Score Threshold: {self.best_threshold:.2f}, Best Score: {valid_dice:.5f}, time: {(time.time() - t):.5f}')
+            self.logger.info(
+                f'''[RESULT]: Val. Epoch: {self.epoch},
+                validation_loss: {valid_loss.avg:.5f},
+                Best Score Threshold: {self.best_threshold:.2f}, 
+                Best Score: {valid_dice:.5f}, 
+                time: {(time.time() - t):.5f}'''
+            )
             self.epoch += 1
             if valid_dice > self.val_score:
                 self.model.eval()
@@ -66,13 +77,13 @@ class Fitter:
 
         train_loader = tqdm(self.train_loader, total=len(self.train_loader), desc='Training')
 
-        for step, (imgs, targets) in enumerate(train_loader):
+        for step, (imgs, masks) in enumerate(train_loader):
             
             self.optimizer.zero_grad()
             batch_size = imgs.shape[0]
 
             imgs = imgs.to(self.cfg.DEVICE)
-            targets = targets.to(self.cfg.DEVICE)
+            targets = masks.to(self.cfg.DEVICE)
 
             y_hat = self.model(imgs).squeeze(1)
             loss = binary_xloss(y_hat, targets)
@@ -89,7 +100,7 @@ class Fitter:
                 f'time: {(time.time() - t):.5f}'
             )
 
-        return summary_loss.avg
+        return summary_loss
 
     def validate(self):
         self.model.eval()
@@ -100,21 +111,31 @@ class Fitter:
 
         valid_probability = []
         valid_mask = []
-        for step, (imgs, targets) in enumerate(val_loader):
-            targets = targets.to(self.cfg.DEVICE)
-            imgs = imgs.to(self.cfg.DEVICE)
+        for step, (imgs, masks) in enumerate(val_loader):
+
+            targets = imgs.to(self.cfg.DEVICE)
+            imgs = masks.to(self.cfg.DEVICE)
+            batch_size = imgs.shape[0]
 
             with torch.no_grad():
-                y_hat = self.model(imgs)
+                y_hat = self.model(imgs).squeeze(1)
+                loss = binary_xloss(y_hat, targets)
+
                 prob = torch.sigmoid(y_hat)
 
+            summary_loss.update(loss, batch_size)
             valid_probability.append(prob.detach().cpu().numpy())
             valid_mask.append(targets.detach().cpu().numpy())
 
+            val_loader.set_description(
+                f'Valid Step {step}/{len(self.val_loader)}, ' + \
+                f'Learning rate {self.optimizer.param_groups[0]["lr"]}, ' + \
+                f'summary_loss: {summary_loss.avg:.5f}, ' + \
+                f'time: {(time.time() - t):.5f}'
+            )
+
         probability = np.concatenate(valid_probability)
         mask = np.concatenate(valid_mask)
-
-        val_loss = binary_xloss(probability, mask)
 
         act_dice = 0
         best_dice = 0
@@ -129,7 +150,7 @@ class Fitter:
                 best_dice = act_dice
 
         self.best_threshold = best_thr
-        return val_loss, best_dice, best_thr
+        return summary_loss, best_dice, best_thr
 
     def save(self, path):
         self.model.eval()
@@ -158,5 +179,34 @@ class Fitter:
         self.best_threshold = checkpoint['best_threshold']
         self.val_score = checkpoint['val_score']
         self.epoch = checkpoint['epoch'] + 1
+
+    def final_check(self):
+        self.model.eval()
+        t = time.time()
+        
+        tmsf = get_valid_transform(self.cfg)
+
+        df = pd.read_csv(
+            os.path.join(self.cfg.DATA_DIR, 'train.csv')
+        )
+        for img_id in self.cfg.DATASET.VALID_ID:
+
+            tile = create_tile_v2(
+                img_id, df, self.cfg
+            )
+
+            tile_image = tile['img_tile']
+            tile_image = np.stack(tile_image)[..., ::-1]
+            print(tile_image.shape)
+            tile_image = np.ascontiguousarray(tile_image.transpose(0,3,1,2))
+            print(tile_image.shape)
+
+            tile_probability = []
+            batch = np.array_split(tile_image, len(tile_image)//4)
+            batch = tmsf(batch)
+            for t, m in enumerate(batch):
+                m
+                preds = self.model(batch).squeeze(1)
+
 
 

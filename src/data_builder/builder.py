@@ -4,9 +4,8 @@ from torch.utils.data import DataLoader, Dataset
 import albumentations as A
 import pandas as pd
 
-from .dataset import hmDataset
+from .dataset import hmTrainDataset, hmTestDataset
 from .transforms import get_train_transform, get_valid_transform
-from segmentation_models_pytorch.encoders import get_preprocessing_fn
 
 def build_train_loader(cfg):
 
@@ -16,14 +15,12 @@ def build_train_loader(cfg):
 
     train_ids = set(df['image_id']) - set(cfg.DATASET.VALID_ID)
     train_transform = get_train_transform(cfg)
-    train_dataset = hmDataset(
+    train_dataset = hmTrainDataset(
         df = df, 
         img_ids = list(train_ids), 
         cfg = cfg, 
         transforms=train_transform
     )
-
-    print(len(train_dataset))
 
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -40,7 +37,7 @@ def build_valid_loader(cfg):
         os.path.join(cfg.DATASET.TILE_DIR, 'coord.csv')
     )
 
-    valid_dataset = hmDataset(
+    valid_dataset = hmTrainDataset(
         df = df, 
         img_ids = cfg.DATASET.VALID_ID, 
         cfg = cfg, 
