@@ -30,7 +30,7 @@ def get_train_transform(cfg):
 
 def get_valid_transform(cfg):
     return A.Compose([
-        A.Resize(height=cfg.DATASET.IMG_HEIGHT, width=cfg.DATASET.IMG_WIDTH),
+        #A.Resize(height=cfg.DATASET.IMG_HEIGHT, width=cfg.DATASET.IMG_WIDTH),
         A.Normalize(),
         ToTensorV2()
     ])

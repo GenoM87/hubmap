@@ -3,10 +3,13 @@ import os, sys, time, warnings, datetime
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+import cv2
 
 import torch
+import albumentations as A
+import rasterio
 
-from utils import create_tile_v2
+from utils import create_tile_v2, rle2mask, to_mask
 from data_builder.transforms import get_valid_transform
 from .average import AverageMeter
 from models.optimizer import make_optimizer
@@ -16,7 +19,6 @@ from models.loss import binary_xloss, dice_coefficient
 class Fitter:
     def __init__(self, model, cfg, train_loader, val_loader, logger, exp_path):
         
-        print(datetime.date.today())
         self.experiment_path =  exp_path
         os.makedirs(self.experiment_path, exist_ok=True)
 
@@ -40,7 +42,7 @@ class Fitter:
         self.val_score = 0
         self.best_threshold = 0
 
-        self.logger.info(f'Avvio training {time.time()} con i seguenti parametri:')
+        self.logger.info(f'Avvio training {datetime.datetime.now()} con i seguenti parametri:')
         self.logger.info(self.cfg)
 
     def train(self):
@@ -185,32 +187,109 @@ class Fitter:
         self.epoch = checkpoint['epoch'] + 1
 
     def final_check(self):
+        
+        self.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        self.model = self.model.to(self.cfg.DEVICE)
+
         self.model.eval()
         t = time.time()
         
-        tmsf = get_valid_transform(self.cfg)
+        norm = A.Normalize()
 
         df = pd.read_csv(
             os.path.join(self.cfg.DATA_DIR, 'train.csv')
         )
-        for img_id in self.cfg.DATASET.VALID_ID:
 
+        for img_id in self.cfg.DATASET.VALID_ID:
+            
+            #Tile creation per l'immagine phase=valid per usare i parametri di test
             tile = create_tile_v2(
-                img_id, df, self.cfg
+                img_id, df, self.cfg, phase='valid'
             )
+
+            path_img = os.path.join(
+                self.cfg.DATA_DIR, 'train', img_id+'.tiff'
+            )
+
+            identity = rasterio.Affine(1, 0, 0, 0, 1, 0)
+
+            dataset = rasterio.open(path_img, transform=identity, num_threads = 'all_cpus')
+            h, w = dataset.shape
+
+            encoding = df[df['id']==img_id]['encoding'].values[0]
+            
+            #CREO LA MASCHERA E RIDEFINISCO h,w
+            mask = rle2mask(encoding, (w, h))
+            mask = cv2.resize(
+                mask, dsize=None, 
+                fx=self.cfg.DATASET.IMG_SCALE, 
+                fy=self.cfg.DATASET.IMG_SCALE, 
+                interpolation=cv2.INTER_AREA
+            )
+            h, w = mask.shape
 
             tile_image = tile['img_tile']
             tile_image = np.stack(tile_image)[..., ::-1]
-            print(tile_image.shape)
+            tile_image = norm(image=tile_image)['image']
             tile_image = np.ascontiguousarray(tile_image.transpose(0,3,1,2))
-            print(tile_image.shape)
 
-            tile_probability = []
             batch = np.array_split(tile_image, len(tile_image)//4)
-            batch = tmsf(batch)
-            for t, m in enumerate(batch):
-                m
-                preds = self.model(batch).squeeze(1)
+    
+            tile_prob = []
+            #itero per tutti i batch
+            for num, imgs in enumerate(batch):
+                imgs = torch.from_numpy(imgs).to(self.cfg.DEVICE)
+                with torch.no_grad():
+                    y_hat = self.model(imgs)
+                    prob = torch.sigmoid(y_hat)
+
+                    tile_prob.append(prob.detach().cpu().numpy())
+            
+            tile_prob = np.concatenate(tile_prob).squeeze()
+            mask_pred = to_mask(
+                tile_prob,
+                tile['coord'],
+                h,
+                w,
+                self.cfg.DATASET.TRAIN_TILE_SIZE
+            )
+
+            predict = (mask_pred>self.best_threshold).astype(np.float32)
+            base_dice = dice_coefficient(predict, mask)
+
+            self.logger.info(f'''
+                [VALID]Immagine: {img_id}, Dice Coeff con threshold {self.best_threshold}: {base_dice}
+            ''')
+            self.logger.info(f'[VALID]Avvio ricerca best thr per immagine {img_id}')
+
+            for thr in np.linspace(0, 1, 21):
+                predict = (mask_pred>thr).astype(np.float32)
+                dice = dice_coefficient(predict, mask)
+                if dice>base_dice:
+                    base_dice=dice
+                    self.best_threshold = thr
+            
+            self.logger.info(f'''
+                [VALID]Immagine: {img_id}, Dice Coeff finale con threshold {self.best_threshold}: {base_dice}
+            ''')
+
+            #Scrittura con previsioni finali
+            predict = (mask_pred>self.best_threshold).astype(np.float32)
+
+            #Scrittura delle immagini finali
+            cv2.imwrite(
+                os.path.join(self.experiment_path, img_id+'.probability.png'), mask_pred
+            )
+
+            cv2.imwrite(
+                os.path.join(self.experiment_path, img_id+'.predict.png'), predict
+            )
+
+            cv2.imwrite(
+                os.path.join(self.experiment_path, img_id+'.mask.png'), mask
+            )
+
+
 
 
 

@@ -83,3 +83,4 @@ _C.MODEL = CN()
 _C.MODEL.NAME = 'resnet34'
 _C.MODEL.PRETRAINING = 'imagenet'
 _C.MODEL.ATTENTION = True
+_C.MODEL.CHECKPOINT_PATH = '/home/giorgio/Scrivania/Kaggle/hubmap/experiments/resnet34/2020-12-29/unet_best.ckpt'

@@ -51,9 +51,15 @@ def create_tile_v2(img_id, df, cfg, phase='train'):
     '''
     #Definizione parametri per creazone tile (da modificare per img_scale)
     img_scale = cfg.DATASET.IMG_SCALE
-    tile_min_score = cfg.DATASET.TRAIN_TILE_MIN_SCORE
-    tile_size = cfg.DATASET.TRAIN_TILE_SIZE
-    tile_avg_step = cfg.DATASET.TRAIN_TILE_AVG_STEP
+
+    if phase=='train':
+        tile_min_score = cfg.DATASET.TRAIN_TILE_MIN_SCORE
+        tile_size = cfg.DATASET.TRAIN_TILE_SIZE
+        tile_avg_step = cfg.DATASET.TRAIN_TILE_AVG_STEP
+    else:
+        tile_min_score = cfg.DATASET.TEST_TILE_MIN_SCORE
+        tile_size = cfg.DATASET.TEST_TILE_SIZE
+        tile_avg_step = cfg.DATASET.TEST_TILE_AVG_STEP
 
     tile_size = tile_size / img_scale
     tile_avg_step = tile_avg_step / img_scale
