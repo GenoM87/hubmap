@@ -1,4 +1,5 @@
-import os, sys, time, warnings, datetime
+import os, sys, time, warnings, datetime, gc
+from collections import OrderedDict
 
 import pandas as pd
 import numpy as np
@@ -188,7 +189,17 @@ class Fitter:
 
     def final_check(self):
         
-        self.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        ckpt = torch.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        if 'model_state_dict' in list(ckpt.keys()):
+            self.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        else:
+            state_dict = ckpt['state_dict']
+            state = OrderedDict([(key.split("model.")[-1], state_dict[key]) for key in state_dict])
+            self.model.load_state_dict(state)
+            del ckpt, state, state_dict
+            
+        gc.collect()
+
         self.model = self.model.to(self.cfg.DEVICE)
 
         self.model.eval()
@@ -213,7 +224,7 @@ class Fitter:
 
             identity = rasterio.Affine(1, 0, 0, 0, 1, 0)
 
-            dataset = rasterio.open(path_img, transform=identity, num_threads = 'all_cpus')
+            dataset = rasterio.open(path_img, transform=identity, num_threads = 'all_cpus',)
             h, w = dataset.shape
 
             encoding = df[df['id']==img_id]['encoding'].values[0]
@@ -239,11 +250,22 @@ class Fitter:
             #itero per tutti i batch
             for num, imgs in enumerate(batch):
                 imgs = torch.from_numpy(imgs).to(self.cfg.DEVICE)
+                p = []
                 with torch.no_grad():
+                    #plain image
                     y_hat = self.model(imgs)
-                    prob = torch.sigmoid(y_hat)
+                    p.append(torch.sigmoid(y_hat))
+                    
+                    #horizontal flip
+                    y_hat = self.model(imgs.flip(dims=(2,)))
+                    p.append(torch.sigmoid(y_hat.flip(dims=(2,))))
+                    
+                    #vertical flip
+                    y_hat = self.model(imgs.flip(dims=(3,)))
+                    p.append(torch.sigmoid(y_hat.flip(dims=(3,))))
 
-                    tile_prob.append(prob.detach().cpu().numpy())
+                p = torch.stack(p).mean(0)
+                tile_prob.append(p.data.detach().cpu().numpy())
             
             tile_prob = np.concatenate(tile_prob).squeeze()
             mask_pred = to_mask(
@@ -251,16 +273,16 @@ class Fitter:
                 tile['coord'],
                 h,
                 w,
-                self.cfg.DATASET.TRAIN_TILE_SIZE
+                self.cfg.DATASET.TEST_TILE_SIZE
             )
 
             predict = (mask_pred>self.best_threshold).astype(np.float32)
             base_dice = dice_coefficient(predict, mask)
 
-            self.logger.info(f'''
+            self.logger.warning(f'''
                 [VALID]Immagine: {img_id}, Dice Coeff con threshold {self.best_threshold}: {base_dice}
             ''')
-            self.logger.info(f'[VALID]Avvio ricerca best thr per immagine {img_id}')
+            self.logger.warning(f'[VALID]Avvio ricerca best thr per immagine {img_id}')
 
             for thr in np.linspace(0, 1, 21):
                 predict = (mask_pred>thr).astype(np.float32)
@@ -269,7 +291,7 @@ class Fitter:
                     base_dice=dice
                     self.best_threshold = thr
             
-            self.logger.info(f'''
+            self.logger.warning(f'''
                 [VALID]Immagine: {img_id}, Dice Coeff finale con threshold {self.best_threshold}: {base_dice}
             ''')
 
@@ -278,15 +300,15 @@ class Fitter:
 
             #Scrittura delle immagini finali
             cv2.imwrite(
-                os.path.join(self.experiment_path, img_id+'.probability.png'), mask_pred
+                os.path.join(self.experiment_path, img_id+'.probability.png'), mask_pred*255
             )
 
             cv2.imwrite(
-                os.path.join(self.experiment_path, img_id+'.predict.png'), predict
+                os.path.join(self.experiment_path, img_id+'.predict.png'), predict*255
             )
 
             cv2.imwrite(
-                os.path.join(self.experiment_path, img_id+'.mask.png'), mask
+                os.path.join(self.experiment_path, img_id+'.mask.png'), mask*255
             )
 
 

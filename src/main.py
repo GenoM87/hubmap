@@ -16,7 +16,7 @@ Path(path_exp).mkdir(parents=True, exist_ok=True)
 
 #Istanzio il logger
 path_logger = os.path.join(
-    path_exp, 'train.log'
+    path_exp, f'train-{datetime.datetime.now()}.log'
 )
 
 logging.basicConfig(filename=path_logger, level=logging.DEBUG)
@@ -37,4 +37,5 @@ if __name__ == "__main__":
         exp_path=path_exp
     )
 
-    engine.train()
+    #engine.train()
+    engine.final_check()
