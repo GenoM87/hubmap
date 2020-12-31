@@ -10,7 +10,7 @@ import torch
 import albumentations as A
 import rasterio
 
-from utils import create_tile_v2, rle2mask, to_mask
+from utils import create_tile_v2, rle2mask, to_mask, global_shift_mask
 from data_builder.transforms import get_valid_transform
 from .average import AverageMeter
 from models.optimizer import make_optimizer
@@ -311,7 +311,116 @@ class Fitter:
                 os.path.join(self.experiment_path, img_id+'.mask.png'), mask*255
             )
 
+    def compute_shift(self):
 
+        ckpt = torch.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        if 'model_state_dict' in list(ckpt.keys()):
+            self.load(self.cfg.MODEL.CHECKPOINT_PATH)
+        else:
+            state_dict = ckpt['state_dict']
+            state = OrderedDict([(key.split("model.")[-1], state_dict[key]) for key in state_dict])
+            self.model.load_state_dict(state)
+            del ckpt, state, state_dict
+            
+        gc.collect()
+
+        self.model = self.model.to(self.cfg.DEVICE)
+
+        self.model.eval()
+        t = time.time()
+        
+        norm = A.Normalize()
+
+        df = pd.read_csv(
+            os.path.join(self.cfg.DATA_DIR, 'train.csv')
+        )
+
+        f = open(
+            os.path.join(self.experiment_path, 'compute_shift.txt'), 'a'
+        )
+
+        for img_id in list(df['id']):
+            
+            #Tile creation per l'immagine phase=valid per usare i parametri di test
+            tile = create_tile_v2(
+                img_id, df, self.cfg, phase='valid'
+            )
+
+            path_img = os.path.join(
+                self.cfg.DATA_DIR, 'train', img_id+'.tiff'
+            )
+
+            identity = rasterio.Affine(1, 0, 0, 0, 1, 0)
+
+            dataset = rasterio.open(path_img, transform=identity, num_threads = 'all_cpus',)
+            h, w = dataset.shape
+
+            encoding = df[df['id']==img_id]['encoding'].values[0]
+            
+            #CREO LA MASCHERA E RIDEFINISCO h,w
+            mask = rle2mask(encoding, (w, h))
+            mask = cv2.resize(
+                mask, dsize=None, 
+                fx=self.cfg.DATASET.IMG_SCALE, 
+                fy=self.cfg.DATASET.IMG_SCALE, 
+                interpolation=cv2.INTER_AREA
+            )
+            h, w = mask.shape
+
+            tile_image = tile['img_tile']
+            tile_image = np.stack(tile_image)[..., ::-1]
+            tile_image = norm(image=tile_image)['image']
+            tile_image = np.ascontiguousarray(tile_image.transpose(0,3,1,2))
+
+            batch = np.array_split(tile_image, len(tile_image)//4)
+    
+            tile_prob = []
+            #itero per tutti i batch
+            for num, imgs in enumerate(batch):
+                imgs = torch.from_numpy(imgs).to(self.cfg.DEVICE)
+                p = []
+                with torch.no_grad():
+                    #plain image
+                    y_hat = self.model(imgs)
+                    p.append(torch.sigmoid(y_hat))
+                    
+                    #horizontal flip
+                    y_hat = self.model(imgs.flip(dims=(2,)))
+                    p.append(torch.sigmoid(y_hat.flip(dims=(2,))))
+                    
+                    #vertical flip
+                    y_hat = self.model(imgs.flip(dims=(3,)))
+                    p.append(torch.sigmoid(y_hat.flip(dims=(3,))))
+
+                p = torch.stack(p).mean(0)
+                tile_prob.append(p.data.detach().cpu().numpy())
+            
+            tile_prob = np.concatenate(tile_prob).squeeze()
+            mask_pred = to_mask(
+                tile_prob,
+                tile['coord'],
+                h,
+                w,
+                self.cfg.DATASET.TEST_TILE_SIZE
+            )
+
+            predict = (mask_pred>self.best_threshold).astype(np.float32)
+
+            shift_x = np.linspace(-25, 25, 51, dtype=int)
+            shift_y = np.linspace(-25, 25, 51, dtype=int)
+
+            best_score = dice_coefficient(predict, mask)
+
+            for sh_x in shift_x:
+                for sh_y in shift_y:
+                    pred_shft = global_shift_mask(predict, y_shift=sh_y, x_shift=sh_x)
+                    dice_shft = dice_coefficient(pred_shft, mask)
+
+                    if dice_shft>=best_score:
+                        f.write(f'Better shifting found {img_id} - x: {sh_x}, y: {sh_y}, dice: {dice_shft:.4f} \n')
+                        best_score = dice_shft
+
+        f.close()
 
 
 

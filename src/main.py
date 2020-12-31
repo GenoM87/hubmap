@@ -38,4 +38,5 @@ if __name__ == "__main__":
     )
 
     #engine.train()
-    engine.final_check()
+    #engine.final_check()
+    engine.compute_shift()

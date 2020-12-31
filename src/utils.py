@@ -339,3 +339,21 @@ def to_mask(tile, tile_coord, img_height, img_width, tile_size, aggregate='mean'
     mask[m] /= count[m]
 
     return mask
+
+def global_shift_mask(maskpred1, y_shift, x_shift):
+    """
+    applies a global shift to a mask by padding one side and cropping from the other
+    """
+    if y_shift <0 and x_shift >=0:
+        maskpred2 = np.pad(maskpred1, [(0,abs(y_shift)), (abs(x_shift), 0)], mode='constant', constant_values=0)
+        maskpred3 = maskpred2[abs(y_shift):, :maskpred1.shape[1]]
+    elif y_shift >=0 and x_shift <0:
+        maskpred2 = np.pad(maskpred1, [(abs(y_shift),0), (0, abs(x_shift))], mode='constant', constant_values=0)
+        maskpred3 = maskpred2[:maskpred1.shape[0], abs(x_shift):]
+    elif y_shift >=0 and x_shift >=0:
+        maskpred2 = np.pad(maskpred1, [(abs(y_shift),0), (abs(x_shift), 0)], mode='constant', constant_values=0)
+        maskpred3 = maskpred2[:maskpred1.shape[0], :maskpred1.shape[1]]
+    elif y_shift < 0 and x_shift < 0:
+        maskpred2 = np.pad(maskpred1, [(0, abs(y_shift)), (0, abs(x_shift))], mode='constant', constant_values=0)
+        maskpred3 = maskpred2[abs(y_shift):, abs(x_shift):]
+    return maskpred3
