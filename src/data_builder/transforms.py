@@ -6,16 +6,16 @@ from albumentations.pytorch import ToTensorV2
 def get_train_transform(cfg):
 
     return A.Compose([
-        A.OneOf([
-          A.OpticalDistortion(p=cfg.DATASET.P_OPTICAL_DIST),
-          A.GridDistortion(p=cfg.DATASET.P_GRID_DIST),
-          A.IAAPiecewiseAffine(p=cfg.DATASET.P_PIECEWISE_AFFINE),
-        ], p=0.3),
+        #A.OneOf([
+        #  A.OpticalDistortion(p=cfg.DATASET.P_OPTICAL_DIST),
+        #  A.GridDistortion(p=cfg.DATASET.P_GRID_DIST),
+        #  A.IAAPiecewiseAffine(p=cfg.DATASET.P_PIECEWISE_AFFINE),
+        #], p=0.3),
         A.OneOf([
           A.HueSaturationValue(10,15,10, p=cfg.DATASET.P_HUE_SATURATION),
           A.CLAHE(clip_limit=2, p=cfg.DATASET.P_CLAHE),
-          A.RandomBrightnessContrast(p=cfg.DATASET.P_RANDOM_BRIGHTNESS),            
-        ], p=0.6),
+          #A.RandomBrightnessContrast(p=cfg.DATASET.P_RANDOM_BRIGHTNESS),            
+        ], p=0.3),
         A.HorizontalFlip(cfg.DATASET.P_HORIZONATL_FLIP),
         A.VerticalFlip(cfg.DATASET.P_VERTICAL_FLIP),
         A.RandomRotate90(cfg.DATASET.P_RANDOM_ROTATE),

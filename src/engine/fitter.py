@@ -7,6 +7,7 @@ from tqdm import tqdm
 import cv2
 
 import torch
+import torch.nn.functional as F
 import albumentations as A
 import rasterio
 
@@ -15,7 +16,8 @@ from data_builder.transforms import get_valid_transform
 from .average import AverageMeter
 from models.optimizer import make_optimizer
 from models.scheduler import make_scheduler
-from models.loss import binary_xloss, dice_coefficient
+from models.loss import binary_xloss, dice_coefficient, dice_coeff
+from models.SegLoss.losses_pytorch.dice_loss import SoftDiceLoss
 
 class Fitter:
     def __init__(self, model, cfg, train_loader, val_loader, logger, exp_path):
@@ -28,6 +30,7 @@ class Fitter:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.logger = logger
+        self.criterion = SoftDiceLoss()
 
         self.optimizer = make_optimizer(
             self.model, self.cfg
@@ -48,7 +51,20 @@ class Fitter:
 
     def train(self):
         #Start training loop
-        for epoch in range(0, self.cfg.SOLVER.NUM_EPOCHS):
+        for epoch in range(self.epoch, self.cfg.SOLVER.NUM_EPOCHS):
+
+            if epoch < self.cfg.SOLVER.WARMUP_EPOCHS:
+                #Create increasing lr
+                lr = np.linspace(
+                    start=self.cfg.SOLVER.MIN_LR, 
+                    stop=self.cfg.SOLVER.LR, 
+                    num=self.cfg.SOLVER.WARMUP_EPOCHS
+                )
+
+                for g in self.optimizer.param_groups:
+                    g['lr'] = lr[epoch]
+                
+                self.logger.info(f'[TRAIN]WARMUP: Increasing learning rate to {lr[epoch]}')
 
             t = time.time()
             summary_loss = self.train_one_epoch()
@@ -60,7 +76,10 @@ class Fitter:
 
             valid_loss, valid_dice, best_thr = self.validate()
 
-            self.scheduler.step(valid_dice)
+            if self.cfg.SOLVER.SCHEDULER == 'ReduceLROnPlateau':
+                self.scheduler.step(valid_loss)
+            else:
+                self.scheduler.step()
 
             self.logger.info(
                 f'''[RESULT]: Val. Epoch: {self.epoch},
@@ -90,10 +109,11 @@ class Fitter:
             batch_size = imgs.shape[0]
 
             imgs = imgs.to(self.cfg.DEVICE)
-            targets = masks.to(self.cfg.DEVICE)
+            targets = masks.to(self.cfg.DEVICE).unsqueeze(1)
 
-            y_hat = self.model(imgs).squeeze(1)
-            loss = binary_xloss(y_hat, targets)
+            prob = self.model(imgs)
+            
+            loss = self.criterion(prob, targets)
 
             loss.backward()
             self.optimizer.step()
@@ -125,10 +145,9 @@ class Fitter:
             batch_size = imgs.shape[0]
 
             with torch.no_grad():
-                y_hat = self.model(imgs).squeeze(1)
-                loss = binary_xloss(y_hat, targets)
+                prob = self.model(imgs).squeeze()
 
-                prob = torch.sigmoid(y_hat)
+                loss = self.criterion(prob, targets)
 
             summary_loss.update(loss, batch_size)
             valid_probability.append(prob.detach().cpu().numpy())
@@ -411,6 +430,7 @@ class Fitter:
 
             best_score = dice_coefficient(predict, mask)
 
+            f.write(f'Starting search for image: {img_id} with dice: {best_score}')
             for sh_x in shift_x:
                 for sh_y in shift_y:
                     pred_shft = global_shift_mask(predict, y_shift=sh_y, x_shift=sh_x)

@@ -1,6 +1,6 @@
 import os
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler
 import albumentations as A
 import pandas as pd
 
@@ -24,6 +24,8 @@ def build_train_loader(cfg):
 
     train_loader = DataLoader(
         dataset=train_dataset,
+        sampler=RandomSampler(train_dataset),
+        drop_last=True,
         batch_size=cfg.TRAIN_LOADER.BATCH_SIZE,
         num_workers=cfg.TRAIN_LOADER.NUM_WORKERS
     )
@@ -46,6 +48,8 @@ def build_valid_loader(cfg):
 
     valid_loader = DataLoader(
         dataset=valid_dataset,
+        sampler=SequentialSampler(valid_dataset),
+        drop_last=False,
         batch_size=cfg.VALID_LOADER.BATCH_SIZE,
         num_workers=cfg.VALID_LOADER.NUM_WORKERS
     )

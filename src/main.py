@@ -37,6 +37,6 @@ if __name__ == "__main__":
         exp_path=path_exp
     )
 
-    #engine.train()
-    #engine.final_check()
-    engine.compute_shift()
+    engine.train()
+    engine.final_check()
+    #engine.compute_shift()
